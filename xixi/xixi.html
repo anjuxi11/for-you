@@ -1277,6 +1277,8 @@ const music = document.getElementById('bgMusic');
 let musicStarted = false;
 const audioToggleBtn = document.getElementById('audioToggle');
 let audioMuted = false;
+const GATE_TRACK_SRC = 'xixi.mp3';
+const MAIN_TRACK_SRC = 'xixi2.mp3';
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const prefersReducedData = window.matchMedia('(prefers-reduced-data: reduce)').matches;
 
@@ -1324,6 +1326,29 @@ function fadeInAudio(duration = 2000) {
   }, 30);
 }
 
+function fadeAudioTo(targetVolume, duration = 600) {
+  return new Promise((resolve) => {
+    const startVolume = clampVolume(music.volume);
+    const endVolume = clampVolume(targetVolume);
+    if (prefersReducedMotion || prefersReducedData || duration <= 0) {
+      music.volume = endVolume;
+      resolve();
+      return;
+    }
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const nextVolume = startVolume + (endVolume - startVolume) * progress;
+      music.volume = clampVolume(nextVolume);
+      if (progress >= 1) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 30);
+  });
+}
+
 if (audioToggleBtn) {
   audioToggleBtn.addEventListener('click', toggleAudio);
   audioToggleBtn.addEventListener('touchstart', toggleAudio, { passive: false });
@@ -1364,6 +1389,53 @@ function startMusic() {
   });
 }
 
+function setMusicTrack(src) {
+  if (!music || !src) return;
+  if (music.getAttribute('data-track-src') === src) return;
+
+  const sourceEl = music.querySelector('source');
+  if (sourceEl) {
+    sourceEl.src = src;
+  } else {
+    music.src = src;
+  }
+  music.setAttribute('data-track-src', src);
+  music.pause();
+  music.load();
+  musicStarted = false;
+}
+
+async function switchMusicTrackSmooth(src, duration = 900) {
+  if (!music || !src) return;
+  if (music.getAttribute('data-track-src') === src) return;
+
+  // If gate music never started, just switch and start the requested track.
+  if (!musicStarted) {
+    setMusicTrack(src);
+    startMusic();
+    return;
+  }
+
+  // Respect reduced motion/data preferences with a direct switch.
+  if (prefersReducedMotion || prefersReducedData) {
+    setMusicTrack(src);
+    startMusic();
+    return;
+  }
+
+  const target = audioMuted ? 0 : 0.15;
+  await fadeAudioTo(0, duration / 2);
+  setMusicTrack(src);
+  const playAttempt = music.play();
+  if (playAttempt && typeof playAttempt.then === 'function') {
+    await playAttempt.catch(() => {});
+  }
+  musicStarted = true;
+  await fadeAudioTo(target, duration / 2);
+}
+
+setMusicTrack(GATE_TRACK_SRC);
+
 /* ── TYPING ANIMATION (STARTS AFTER UNLOCK) ── */
 const typingBox = document.getElementById('typingBox');
 const typeText = document.getElementById('typeText');
@@ -1375,6 +1447,7 @@ const INTRO_TYPING_DURATION_MS = 5000;
 const INTRO_TYPING_DELAY_MS = 500;
 const INTRO_FADE_DURATION_MS = 1000;
 const INTRO_TOTAL_MS = INTRO_TYPING_DURATION_MS + INTRO_TYPING_DELAY_MS;
+const INTRO_HANDOFF_OVERLAP_MS = 250;
 
 let mainStarted = false;
 function startMainExperience() {
@@ -1385,8 +1458,14 @@ function startMainExperience() {
   if (burstSparkleInterval) clearInterval(burstSparkleInterval);
   if (strongBurstInterval) clearInterval(strongBurstInterval);
 
+  // Switch from gate track to main track with smooth fade transition.
+  switchMusicTrackSmooth(MAIN_TRACK_SRC, 1000);
+
   typingBox.classList.remove('fade-out');
   typingBox.style.display = 'block';
+  typingBox.style.animation = 'none';
+  void typingBox.offsetWidth;
+  typingBox.style.animation = 'typeBoxFade 1s ease both';
   if (prefersReducedMotion) {
     typeText.style.animation = 'none';
     typeText.style.width = '100%';
@@ -1405,9 +1484,13 @@ function startMainExperience() {
   setTimeout(() => {
     typingBox.classList.add('fade-out');
     setTimeout(() => {
-      typingBox.style.display = 'none';
       card.style.display = 'block';
-      startMusic();
+      card.style.animation = 'none';
+      void card.offsetWidth;
+      card.style.animation = 'cinemaReveal 2s cubic-bezier(0.25,0.46,0.45,0.94) both';
+    }, Math.max(0, INTRO_FADE_DURATION_MS - INTRO_HANDOFF_OVERLAP_MS));
+    setTimeout(() => {
+      typingBox.style.display = 'none';
       // Text will type as user scrolls
     }, INTRO_FADE_DURATION_MS);
   }, prefersReducedMotion ? 600 : INTRO_TOTAL_MS);

@@ -1904,13 +1904,21 @@ function initPreEntryGate() {
     }, speed * 1000 + 50); // Wait for transition + buffer
   }
 
+  const tryAutoValidateBirthday = () => {
+    if (pgDdInput.value.length === 2 && pgMmInput.value.length === 2) {
+      validateBirthdayCode();
+    }
+  };
+
   pgDdInput.addEventListener('input', () => {
     sanitizeCodeInput(pgDdInput);
     if (pgDdInput.value.length === 2) pgMmInput.focus();
+    tryAutoValidateBirthday();
   });
 
   pgMmInput.addEventListener('input', () => {
     sanitizeCodeInput(pgMmInput);
+    tryAutoValidateBirthday();
   });
 
   pgMmInput.addEventListener('keydown', (e) => {
